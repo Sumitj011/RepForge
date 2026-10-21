@@ -87,6 +87,19 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
   padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px}
 .badge.ok{background:var(--ok);color:#06241a}
 
+/* exercise checklist */
+[data-ex]{scroll-margin-top:70px}
+.tick{width:34px;height:34px;flex:0 0 34px;border-radius:50%;border:2px solid var(--line);background:var(--card2);
+  color:var(--ok);font-size:18px;font-weight:800;cursor:pointer;padding:0;line-height:1}
+.tick.on{background:var(--ok);border-color:var(--ok);color:#06241a}
+.exrow{display:flex;align-items:center;gap:12px;padding:12px}
+.exrow .info{flex:1;min-width:0}
+.exrow.isdone h3{text-decoration:line-through;color:var(--muted)}
+.exrow .start{white-space:nowrap;background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
+.exrow.isdone .start{background:var(--card2);color:var(--text);border-color:var(--line);font-weight:400}
+.wprog{height:8px;background:var(--card2);border-radius:99px;overflow:hidden;margin:6px 0 14px}
+.wprog i{display:block;height:100%;background:var(--ok);transition:width .25s}
+
 /* menu */
 .menu-wrap{position:relative;display:flex;align-items:center}
 .menu{position:absolute;right:0;top:48px;min-width:240px;background:var(--card);border:1px solid var(--line);
@@ -389,6 +402,7 @@ let rest = null;        // {end, total, exId, mode, done}
 let timerId = null;
 let wakeLock = null;
 let guestAsked = false;
+let openEx = null;      // exercise currently expanded in the workout checklist
 
 const exById = (id) => state.exercises.find(e => e.id === id);
 
@@ -592,6 +606,7 @@ function makeEntry(id, c) {
 }
 function startWorkout(ids, label, cfg) {
   state.active = { id: uid(), start: Date.now(), label: label || '', entries: ids.filter(exById).map(id => makeEntry(id, cfg && cfg[id])) };
+  openEx = null;
   persist(); keepAwake(true);
 }
 function weekStreak() {
@@ -712,7 +727,9 @@ function viewWorkout() {
     <div class="row between" style="margin-bottom:12px">
       <div><h2>${esc(a.label || 'Workout')} in progress</h2><div class="muted">Started ${new Date(a.start).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · ${dur} min</div></div>
     </div>
-    ${a.entries.map(entryCard).join('')}
+    <div class="muted"><b>${a.entries.filter(e => e.done).length} / ${a.entries.length}</b> exercises done</div>
+    <div class="wprog"><i style="width:${a.entries.length ? Math.round(a.entries.filter(e => e.done).length / a.entries.length * 100) : 0}%"></i></div>
+    ${a.entries.map(en => openEx === en.exId ? entryCard(en) : entryRow(en)).join('')}
     <div class="card">
       <label>Add exercise to this workout</label>
       <div class="row">
@@ -725,6 +742,16 @@ function viewWorkout() {
     <button class="ghost danger" style="width:100%;margin-top:10px" data-act="discard">Discard workout</button>`;
 }
 
+function entryRow(en) {                       // collapsed checklist row: tick + name + Start
+  const ex = exById(en.exId); if (!ex) return '';
+  const tg = en.target || 0, n = en.sets.length;
+  const info = (tg ? `${n} / ${tg} sets` + (en.repsTxt ? ' · ' + esc(en.repsTxt) : '') : `${n} sets logged`);
+  return `<div class="card exrow ${en.done ? 'isdone' : ''}" data-ex="${en.exId}">
+    <button class="tick ${en.done ? 'on' : ''}" data-act="toggle-done" aria-label="Mark exercise done">${en.done ? '✓' : ''}</button>
+    <div class="info"><h3>${esc(ex.name)}</h3><div class="muted">${info}</div></div>
+    <button class="ghost start" data-act="open-ex">${en.done ? 'View' : n ? 'Continue' : 'Start'}</button>
+  </div>`;
+}
 function entryCard(en) {
   const ex = exById(en.exId); if (!ex) return '';
   const prev = lastSet(en.exId);
@@ -735,8 +762,14 @@ function entryCard(en) {
   const tgt = tg && en.repsTxt ? `Target: ${tg} × ${esc(en.repsTxt)}` : '';
   return `<div class="card" data-ex="${en.exId}">
     <div class="row between">
-      <h3>${esc(ex.name)}${badge}</h3>
-      <button class="ghost" data-act="remove-entry" title="Remove from workout">✕</button>
+      <div class="row" style="min-width:0">
+        <button class="tick ${en.done ? 'on' : ''}" data-act="toggle-done" aria-label="Mark exercise done">${en.done ? '✓' : ''}</button>
+        <h3>${esc(ex.name)}${badge}</h3>
+      </div>
+      <div class="row" style="gap:6px">
+        <button class="ghost" data-act="close-ex" title="Collapse">▲</button>
+        <button class="ghost" data-act="remove-entry" title="Remove from workout">✕</button>
+      </div>
     </div>
     ${tgt ? `<div class="muted" style="margin-top:2px"><b>${tgt}</b></div>` : ''}
     <div class="muted">${prev ? `Last time: ${prev.w} kg × ${prev.r}` : 'First time — no history yet'}</div>
@@ -1051,12 +1084,21 @@ document.addEventListener('click', (e) => {
   else if (act === 'add-entry') {
     const id = $('#addExSel').value; if (!id) return;
     state.active.entries.push(makeEntry(id));
+    openEx = id;
     persist(); render();
   }
   else if (act === 'remove-entry') {
     const [en] = entryOf(t);
     if (en.sets.length && !confirm('Remove this exercise and its logged sets?')) return;
     state.active.entries = state.active.entries.filter(x => x !== en); persist(); render();
+  }
+  else if (act === 'open-ex') {
+    const [en] = entryOf(t); openEx = en.exId; render();
+    const el = document.querySelector('[data-ex="' + en.exId + '"]'); if (el) el.scrollIntoView({ block: 'start' });
+  }
+  else if (act === 'close-ex') { openEx = null; render(); }
+  else if (act === 'toggle-done') {
+    const [en] = entryOf(t); en.done = !en.done; persist(); render();
   }
   else if (act === 'step') {
     const [en, card] = entryOf(t); const f = t.dataset.f;
@@ -1072,20 +1114,30 @@ document.addEventListener('click', (e) => {
     if (xIn) ex.restEx = Math.max(5, num(xIn.value, exRest(ex)));
     const best = bestWeight(en.exId);
     en.sets.push({ w: num(en.w), r: num(en.r), t: Date.now() });
-    persist(); render();
-    // last planned set -> longer rest before the next exercise; otherwise short rest between sets
     const lastSetOfExercise = en.target && en.sets.length === en.target;
+    if (lastSetOfExercise) {                       // auto-tick and open the next exercise
+      en.done = true;
+      const nx = state.active.entries.find(x => !x.done && x !== en);
+      openEx = nx ? nx.exId : null;
+    }
+    persist(); render();
+    if (lastSetOfExercise) window.scrollTo(0, 0);
+    // last planned set -> longer rest before the next exercise; otherwise short rest between sets
     if (lastSetOfExercise) startRest(exRest(ex), en.exId, 'ex');
     else startRest(ex.rest, en.exId, 'set');
     if (best > 0 && num(en.w) > best) toast('🏆 New PR on ' + ex.name + ': ' + en.w + ' kg');
   }
   else if (act === 'del-set') {
-    const [en] = entryOf(t); en.sets.splice(+t.dataset.i, 1); persist(); render();
+    const [en] = entryOf(t); en.sets.splice(+t.dataset.i, 1);
+    if (en.target && en.sets.length < en.target) en.done = false;
+    persist(); render();
   }
   else if (act === 'finish') {
     const a = state.active;
     const entries = a.entries.filter(x => x.sets.length).map(x => ({ exId: x.exId, name: x.name, sets: x.sets }));
     if (!entries.length) { if (confirm('No sets logged. Discard this workout?')) { state.active = null; persist(); stopRest(); keepAwake(false); render(); } return; }
+    const left = a.entries.filter(x => x.target && !x.done).length;
+    if (left && !confirm(left + ' planned exercise(s) not marked done. Finish workout anyway?')) return;
     const s = { id: a.id, date: a.start, label: a.label || '', duration: Math.max(1, Math.round((Date.now() - a.start) / 60000)), entries };
     state.sessions.push(s); saveSession(s);
     state.active = null; persist(); stopRest(); keepAwake(false); tab = 'history'; render(); toast('Workout saved 💪');
