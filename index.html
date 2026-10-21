@@ -87,6 +87,14 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
   padding:2px 10px;font-size:12px;font-weight:700;margin-left:6px}
 .badge.ok{background:var(--ok);color:#06241a}
 
+/* summary overlay */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:40;display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto}
+.sumcard{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;max-width:420px;width:100%;text-align:center}
+.sumgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0}
+.sumgrid div{background:var(--card2);border-radius:14px;padding:12px}
+.sumgrid b{display:block;font-size:24px}
+.sumgrid span{font-size:12px;color:var(--muted)}
+
 /* exercise checklist */
 [data-ex]{scroll-margin-top:70px}
 .tick{width:34px;height:34px;flex:0 0 34px;border-radius:50%;border:2px solid var(--line);background:var(--card2);
@@ -198,6 +206,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 </div>
 
 <div class="toast" id="toast"></div>
+<div class="overlay hidden" id="summary"></div>
 
 <nav class="tabs hidden" id="tabs">
   <button data-tab="home"><b>🏠</b>Home</button>
@@ -262,6 +271,22 @@ const mondayOf = (ts) => { const d = new Date(ts); d.setHours(0, 0, 0, 0); d.set
 const DEF_REST = 30;      // between sets (sec)
 const DEF_REST_EX = 60;   // after the last set of an exercise (sec)
 const exRest = (ex) => ex.restEx == null ? DEF_REST_EX : ex.restEx;
+
+/* exercise types: 'weight' (kg x reps), 'bw' (bodyweight reps, optional extra kg), 'timed' (hold + countdown) */
+const TIMED_RE = /^(plank|side plank|dead hang|deep squat hold|forward fold)/i;
+const BW_RE = /^(pull-ups|push-ups|close-grip push-ups|hanging (knee|leg) raises|reverse crunch|russian twist|walking lunges|bicycle crunch|cat-cow|world's greatest stretch|shoulder dislocates|glute bridges|90\/90|ankle mobility|thoracic rotations|chin-ups|dips|sit-ups|crunch)/i;
+const exType = (ex) => ex.type || (TIMED_RE.test(ex.name) ? 'timed' : BW_RE.test(ex.name) ? 'bw' : 'weight');
+const entType = (en) => en.type || exType(exById(en.exId) || { name: en.name || '' });
+const TYPE_NAMES = { weight: 'Weights (kg × reps)', bw: 'Bodyweight (reps)', timed: 'Timed hold (seconds)' };
+const typeOptions = (sel) => Object.keys(TYPE_NAMES).map(k => `<option value="${k}" ${k === sel ? 'selected' : ''}>${TYPE_NAMES[k]}</option>`).join('');
+function parseSec(txt) {
+  if (!txt) return 0;
+  const m = String(txt).match(/(\d+(?:\.\d+)?)/); if (!m) return 0;
+  const n = parseFloat(m[1]);
+  return /min/i.test(txt) ? Math.round(n * 60) : /sec/i.test(txt) ? Math.round(n) : 0;
+}
+const setLong = (x) => x.s ? x.s + ' sec' : x.w ? x.w + ' kg × ' + x.r : x.r + ' reps';
+const setShort = (x) => x.s ? x.s + 's' : x.w ? x.w + '×' + x.r : x.r + ' reps';
 
 let toastT;
 function toast(msg) {
@@ -599,8 +624,9 @@ function bestWeight(exId) {
   return best;
 }
 function makeEntry(id, c) {
-  const ex = exById(id), p = lastSet(id);
-  const en = { exId: id, name: ex.name, w: p ? p.w : 20, r: p ? p.r : 10, sets: [] };
+  const ex = exById(id), p = lastSet(id), ty = exType(ex);
+  const en = { exId: id, name: ex.name, type: ty, w: p ? p.w : (ty === 'weight' ? 20 : 0), r: p && p.r ? p.r : 10, sets: [] };
+  if (ty === 'timed') en.t = parseSec(c && c.reps) || (p && p.s) || 30;
   if (c && c.sets) { en.target = c.sets; en.repsTxt = c.reps || ''; }
   return en;
 }
@@ -752,6 +778,32 @@ function entryRow(en) {                       // collapsed checklist row: tick +
     <button class="ghost start" data-act="open-ex">${en.done ? 'View' : n ? 'Continue' : 'Start'}</button>
   </div>`;
 }
+function entryInputs(en) {
+  const ty = entType(en);
+  if (ty === 'timed') {
+    return `<div style="margin:12px 0"><label>Hold time (sec)</label>
+      <div class="stepper"><button data-act="step" data-f="t" data-d="-5">−</button>
+      <input type="number" inputmode="numeric" data-f="t" value="${en.t || 30}">
+      <button data-act="step" data-f="t" data-d="5">+</button></div></div>`;
+  }
+  return `<div class="steppers">
+      <div><label>${ty === 'bw' ? 'Extra weight (kg, optional)' : 'Weight (kg)'}</label>
+        <div class="stepper"><button data-act="step" data-f="w" data-d="-2.5">−</button>
+        <input type="number" inputmode="decimal" step="0.5" data-f="w" value="${en.w}">
+        <button data-act="step" data-f="w" data-d="2.5">+</button></div></div>
+      <div><label>Reps</label>
+        <div class="stepper"><button data-act="step" data-f="r" data-d="-1">−</button>
+        <input type="number" inputmode="numeric" data-f="r" value="${en.r}">
+        <button data-act="step" data-f="r" data-d="1">+</button></div></div>
+    </div>`;
+}
+function entryLogBtn(en) {
+  if (entType(en) === 'timed') {
+    return `<button class="primary" data-act="hold-start" style="margin-top:12px">▶ Start hold timer</button>
+      <button class="ghost" data-act="log" style="width:100%;margin-top:8px">Log set manually ✓</button>`;
+  }
+  return `<button class="primary" data-act="log" style="margin-top:12px">Log set ✓</button>`;
+}
 function entryCard(en) {
   const ex = exById(en.exId); if (!ex) return '';
   const prev = lastSet(en.exId);
@@ -772,26 +824,17 @@ function entryCard(en) {
       </div>
     </div>
     ${tgt ? `<div class="muted" style="margin-top:2px"><b>${tgt}</b></div>` : ''}
-    <div class="muted">${prev ? `Last time: ${prev.w} kg × ${prev.r}` : 'First time — no history yet'}</div>
-    <div class="steppers">
-      <div><label>Weight (kg)</label>
-        <div class="stepper"><button data-act="step" data-f="w" data-d="-2.5">−</button>
-        <input type="number" inputmode="decimal" step="0.5" data-f="w" value="${en.w}">
-        <button data-act="step" data-f="w" data-d="2.5">+</button></div></div>
-      <div><label>Reps</label>
-        <div class="stepper"><button data-act="step" data-f="r" data-d="-1">−</button>
-        <input type="number" inputmode="numeric" data-f="r" value="${en.r}">
-        <button data-act="step" data-f="r" data-d="1">+</button></div></div>
-    </div>
+    <div class="muted">${prev ? `Last time: ${setLong(prev)}` : 'First time — no history yet'}</div>
+    ${entryInputs(en)}
     <div class="row">
       <div style="flex:1"><label>Rest between sets (sec)</label>
         <input type="number" inputmode="numeric" data-f="rest" value="${ex.rest}"></div>
       <div style="flex:1"><label>Rest after exercise (sec)</label>
         <input type="number" inputmode="numeric" data-f="restEx" value="${exRest(ex)}"></div>
     </div>
-    <button class="primary" data-act="log" style="margin-top:12px">Log set ✓</button>
+    ${entryLogBtn(en)}
     ${en.sets.length ? `<div class="sets">${en.sets.map((s, i) => `
-      <div class="set"><span class="n">#${i + 1}</span><span>${s.w} kg × ${s.r}</span>
+      <div class="set"><span class="n">#${i + 1}</span><span>${setLong(s)}</span>
       <button data-act="del-set" data-i="${i}" title="Delete set">✕</button></div>`).join('')}</div>` : ''}
   </div>`;
 }
@@ -853,6 +896,8 @@ function viewPlan() {
         ${[20, 30, 35, 45, 60, 90].map(s => `<button class="ghost" data-act="rest-preset" data-s="${s}">${fmtRest(s)}</button>`).join('')}
       </div>
       <div class="muted" style="margin:-4px 0 10px">Quick buttons fill the "between sets" box.</div>
+      <div style="margin-bottom:12px"><label>Exercise type</label>
+        <select id="newType">${typeOptions('weight')}</select></div>
       <button class="primary" data-act="add-ex">Add exercise</button>
     </div>
     <div class="card">
@@ -864,6 +909,7 @@ function viewPlan() {
           <div><label>Set (s)</label><input data-f="rest" type="number" inputmode="numeric" value="${e.rest}"></div>
           <div><label>Ex (s)</label><input data-f="restEx" type="number" inputmode="numeric" value="${exRest(e)}"></div>
           <button class="ghost danger" data-act="del-ex" title="Delete">🗑</button>
+          <div style="grid-column:1/-1"><label>Type</label><select data-f="type">${typeOptions(exType(e))}</select></div>
         </div>`).join('') : '<div class="empty">No exercises yet.</div>'}
     </div>`;
 }
@@ -880,7 +926,7 @@ function viewHistory() {
         <button class="ghost danger" data-act="del-session" title="Delete">🗑</button>
       </div>
       ${s.entries.filter(e => e.sets.length).map(e => `<div class="hist-ex"><b>${esc(e.name)}</b>
-        ${e.sets.map(x => `<span class="chip">${x.w}×${x.r}</span>`).join(' ')}</div>`).join('')}
+        ${e.sets.map(x => `<span class="chip">${setShort(x)}</span>`).join(' ')}</div>`).join('')}
     </div>`;
   }).join('') : '<div class="empty">No workouts yet.<br>Finish one and it will show up here.</div>';
 }
@@ -963,7 +1009,7 @@ function toggleMenu() {
 /* ---------- rest timer ---------- */
 function restLabelText(r) {
   const n = exById(r.exId)?.name || '';
-  return (r.mode === 'ex' ? 'Rest before next exercise · ' : 'Rest between sets · ') + n;
+  return (r.mode === 'hold' ? 'Hold · ' : r.mode === 'ex' ? 'Rest before next exercise · ' : 'Rest between sets · ') + n;
 }
 function startRest(seconds, exId, mode) {
   if (seconds <= 0) return;
@@ -980,7 +1026,10 @@ function tick() {
   const left = (rest.end - Date.now()) / 1000;
   $('#restTime').textContent = fmt(left);
   $('#restProg').style.width = Math.max(0, Math.min(100, left / rest.total * 100)) + '%';
+  const c = Math.ceil(left);
+  if (!rest.done && c >= 1 && c <= 3 && rest.lastC !== c) { rest.lastC = c; shortBeep(); }   // 3-2-1 countdown beeps
   if (left <= 0 && !rest.done) {
+    if (rest.mode === 'hold') { finishHold(); return; }
     rest.done = true;
     $('#restbar').classList.add('done');
     $('#restLabel').textContent = rest.mode === 'ex' ? 'Rest over — next exercise!' : 'Rest over — next set!';
@@ -989,6 +1038,68 @@ function tick() {
   }
 }
 function stopRest() { rest = null; clearInterval(timerId); $('#restbar').classList.remove('show'); }
+
+function shortBeep() {
+  try {
+    unlockAudio(); if (!audioCtx) return;
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain(), t = audioCtx.currentTime;
+    o.frequency.value = 700; o.type = 'sine';
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.35, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+    o.connect(g); g.connect(audioCtx.destination); o.start(t); o.stop(t + 0.17);
+    if (navigator.vibrate) navigator.vibrate(60);
+  } catch (e) {}
+}
+
+/* hold timer finished -> long beep, log the set automatically, start the normal rest */
+function finishHold() {
+  const r = rest;
+  const en = state.active && state.active.entries.find(x => x.exId === r.exId);
+  beep(); if (navigator.vibrate) navigator.vibrate([300, 120, 300, 120, 500]);
+  stopRest();
+  if (en) logSet(en, { w: 0, r: 0, s: Math.round(r.total) });
+}
+
+/* logs one set, auto-ticks the exercise after its last set, starts the right rest */
+function logSet(en, set) {
+  const ex = exById(en.exId);
+  const best = set.s ? 0 : bestWeight(en.exId);
+  en.sets.push({ ...set, t: Date.now() });
+  const last = en.target && en.sets.length === en.target;
+  if (last) {
+    en.done = true;
+    const nx = state.active.entries.find(x => !x.done && x !== en);
+    openEx = nx ? nx.exId : null;
+  }
+  const pr = best > 0 && set.w > best;
+  if (pr) { const a = state.active; a.prs = a.prs || []; if (!a.prs.includes(ex.name)) a.prs.push(ex.name); }
+  persist(); render();
+  if (last) window.scrollTo(0, 0);
+  if (last) startRest(exRest(ex), en.exId, 'ex'); else startRest(ex.rest, en.exId, 'set');
+  if (pr) toast('🏆 New PR on ' + ex.name + ': ' + set.w + ' kg');
+}
+
+function showSummary(s, prs) {
+  const sets = s.entries.reduce((t, e) => t + e.sets.length, 0);
+  const vol = s.entries.reduce((t, e) => t + e.sets.reduce((a, x) => a + x.w * x.r, 0), 0);
+  const volTxt = vol >= 1000 ? (vol / 1000).toFixed(1) + ' t' : vol ? Math.round(vol) + ' kg' : '—';
+  $('#summary').innerHTML = `<div class="sumcard">
+    <div style="font-size:46px">🎉</div>
+    <h2>Workout complete!</h2>
+    <div class="muted">${esc(s.label || 'Workout')}</div>
+    <div class="sumgrid">
+      <div><b>${s.duration}</b><span>minutes</span></div>
+      <div><b>${s.entries.length}</b><span>exercises</span></div>
+      <div><b>${sets}</b><span>sets</span></div>
+      <div><b>${volTxt}</b><span>volume</span></div>
+    </div>
+    ${prs.length ? `<div style="margin-bottom:12px"><div class="muted">🏆 New personal records</div>${prs.map(n => `<span class="chip">${esc(n)}</span>`).join('')}</div>` : ''}
+    <p class="muted" style="margin:0 0 14px">“${esc(QUOTES[pickQuote()])}”</p>
+    <button class="primary" data-act="close-summary">Done</button>
+  </div>`;
+  $('#summary').classList.remove('hidden');
+}
 
 let audioCtx;
 function unlockAudio() {
@@ -1097,35 +1208,33 @@ document.addEventListener('click', (e) => {
     const el = document.querySelector('[data-ex="' + en.exId + '"]'); if (el) el.scrollIntoView({ block: 'start' });
   }
   else if (act === 'close-ex') { openEx = null; render(); }
+  else if (act === 'close-summary') $('#summary').classList.add('hidden');
+  else if (act === 'hold-start') {
+    const [en, card] = entryOf(t); const ex = exById(en.exId);
+    const rIn = card.querySelector('input[data-f="rest"]'), xIn = card.querySelector('input[data-f="restEx"]');
+    if (rIn) ex.rest = Math.max(5, num(rIn.value, ex.rest));
+    if (xIn) ex.restEx = Math.max(5, num(xIn.value, exRest(ex)));
+    const secs = num(en.t, 30);
+    if (secs <= 0) { toast('Enter seconds first'); return; }
+    startRest(secs, en.exId, 'hold');
+  }
   else if (act === 'toggle-done') {
     const [en] = entryOf(t); en.done = !en.done; persist(); render();
   }
   else if (act === 'step') {
     const [en, card] = entryOf(t); const f = t.dataset.f;
-    en[f] = Math.max(0, Math.round((num(en[f]) + num(t.dataset.d)) * 10) / 10);
+    en[f] = Math.max(0, Math.round((num(en[f], f === 't' ? 30 : 0) + num(t.dataset.d)) * 10) / 10);
     card.querySelector(`input[data-f="${f}"]`).value = en[f]; persist();
   }
   else if (act === 'log') {
     const [en, card] = entryOf(t); const ex = exById(en.exId);
-    if (num(en.r) <= 0) { toast('Enter reps first'); return; }
+    const timed = entType(en) === 'timed';
+    if (timed ? num(en.t, 30) <= 0 : num(en.r) <= 0) { toast(timed ? 'Enter seconds first' : 'Enter reps first'); return; }
     // pick up rest values typed but not yet committed
     const rIn = card.querySelector('input[data-f="rest"]'), xIn = card.querySelector('input[data-f="restEx"]');
     if (rIn) ex.rest = Math.max(5, num(rIn.value, ex.rest));
     if (xIn) ex.restEx = Math.max(5, num(xIn.value, exRest(ex)));
-    const best = bestWeight(en.exId);
-    en.sets.push({ w: num(en.w), r: num(en.r), t: Date.now() });
-    const lastSetOfExercise = en.target && en.sets.length === en.target;
-    if (lastSetOfExercise) {                       // auto-tick and open the next exercise
-      en.done = true;
-      const nx = state.active.entries.find(x => !x.done && x !== en);
-      openEx = nx ? nx.exId : null;
-    }
-    persist(); render();
-    if (lastSetOfExercise) window.scrollTo(0, 0);
-    // last planned set -> longer rest before the next exercise; otherwise short rest between sets
-    if (lastSetOfExercise) startRest(exRest(ex), en.exId, 'ex');
-    else startRest(ex.rest, en.exId, 'set');
-    if (best > 0 && num(en.w) > best) toast('🏆 New PR on ' + ex.name + ': ' + en.w + ' kg');
+    logSet(en, timed ? { w: 0, r: 0, s: num(en.t, 30) } : { w: num(en.w), r: num(en.r) });
   }
   else if (act === 'del-set') {
     const [en] = entryOf(t); en.sets.splice(+t.dataset.i, 1);
@@ -1140,7 +1249,9 @@ document.addEventListener('click', (e) => {
     if (left && !confirm(left + ' planned exercise(s) not marked done. Finish workout anyway?')) return;
     const s = { id: a.id, date: a.start, label: a.label || '', duration: Math.max(1, Math.round((Date.now() - a.start) / 60000)), entries };
     state.sessions.push(s); saveSession(s);
-    state.active = null; persist(); stopRest(); keepAwake(false); tab = 'history'; render(); toast('Workout saved 💪');
+    const prs = a.prs || [];
+    state.active = null; persist(); stopRest(); keepAwake(false); tab = 'history'; render();
+    showSummary(s, prs);
   }
   else if (act === 'discard') {
     if (confirm('Discard this workout? Logged sets will be lost.')) { state.active = null; persist(); stopRest(); keepAwake(false); render(); }
@@ -1191,7 +1302,7 @@ document.addEventListener('click', (e) => {
   else if (act === 'add-ex') {
     const name = $('#newName').value.trim(); if (!name) { $('#newName').focus(); return; }
     if (state.exercises.some(x => x.name.toLowerCase() === name.toLowerCase())) { toast('That exercise already exists'); return; }
-    state.exercises.push({ id: uid(), name, rest: Math.max(5, num($('#newRest').value, DEF_REST)), restEx: Math.max(5, num($('#newRestEx').value, DEF_REST_EX)) });
+    state.exercises.push({ id: uid(), name, type: $('#newType').value, rest: Math.max(5, num($('#newRest').value, DEF_REST)), restEx: Math.max(5, num($('#newRestEx').value, DEF_REST_EX)) });
     persist(); render(); toast('Exercise added');
   }
   else if (act === 'del-ex') {
@@ -1266,6 +1377,7 @@ document.addEventListener('change', (e) => {
     if (f === 'name') { const v = t.value.trim(); if (v) ex.name = v; else t.value = ex.name; }
     if (f === 'rest') { ex.rest = Math.max(5, num(t.value, ex.rest)); t.value = ex.rest; }
     if (f === 'restEx') { ex.restEx = Math.max(5, num(t.value, exRest(ex))); t.value = ex.restEx; }
+    if (f === 'type') ex.type = t.value;
     persist();
   }
 });
