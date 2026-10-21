@@ -31,6 +31,7 @@ header{display:flex;align-items:center;justify-content:space-between;
   border-bottom:1px solid var(--line)}
 header h1{font-size:22px;margin:0;letter-spacing:.3px;font-weight:800}
 header h1 span{color:var(--accent)}
+.made{font-size:11px;color:var(--muted);margin-top:1px;letter-spacing:.2px}
 .icon-btn{background:var(--card);border:1px solid var(--line);color:var(--text);
   border-radius:10px;width:40px;height:40px;font-size:20px;cursor:pointer;line-height:1}
 main{max-width:640px;margin:0 auto;padding:16px}
@@ -178,7 +179,10 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 <body>
 
 <header>
-  <h1>Rep<span>Forge</span></h1>
+  <div>
+    <h1>Rep<span>Forge</span></h1>
+    <div class="made">Made with 💓 by Spirit</div>
+  </div>
   <div class="row">
     <span class="status" id="saveStatus"></span>
     <div class="menu-wrap">
@@ -996,7 +1000,9 @@ function menuHtml() {
     : `<button data-act="login"><b>Sign in with Google</b><span>Sync your workouts across devices</span></button>`;
   return who + acct +
     (window.__ip ? `<button data-act="install"><b>Install app</b><span>Add RepForge to your home screen</span></button>` : '') +
-    `<button data-act="theme">Switch light / dark</button>
+    `<button data-act="help-install"><b>How to install on phone</b><span>Android &amp; iPhone steps</span></button>
+     <button data-act="help-use"><b>How to use RepForge</b><span>Quick guide</span></button>
+     <button data-act="theme">Switch light / dark</button>
      <button data-act="export">Export data (JSON)</button>
      <button data-act="import">Import data (JSON)</button>`;
 }
@@ -1078,6 +1084,42 @@ function logSet(en, set) {
   if (last) window.scrollTo(0, 0);
   if (last) startRest(exRest(ex), en.exId, 'ex'); else startRest(ex.rest, en.exId, 'set');
   if (pr) toast('🏆 New PR on ' + ex.name + ': ' + set.w + ' kg');
+}
+
+function showHelp(kind) {
+  const L = 'text-align:left;margin:6px 0 0;padding-left:20px;line-height:1.5';
+  const body = kind === 'install' ? `
+    <h2>Install on your phone</h2>
+    <div class="muted" style="margin-bottom:10px">No APK, no "harmful app" warning. It installs straight from the browser.</div>
+    <h3 style="text-align:left">Android (Chrome)</h3>
+    <ol style="${L}">
+      <li>Open the app link in <b>Chrome</b>.</li>
+      <li>Tap the <b>⋮</b> menu at the top right of Chrome.</li>
+      <li>Tap <b>Install app</b> (or <b>Add to Home screen</b>) and confirm.</li>
+      <li>Open RepForge from your home screen like any other app.</li>
+    </ol>
+    <h3 style="text-align:left;margin-top:14px">iPhone (Safari)</h3>
+    <ol style="${L}">
+      <li>Open the app link in <b>Safari</b> (not Chrome).</li>
+      <li>Tap the <b>Share</b> button.</li>
+      <li>Tap <b>Add to Home Screen</b>, then <b>Add</b>.</li>
+    </ol>
+    <p class="muted" style="text-align:left;margin:14px 0">The app must be opened from its https link (not a file on your phone). After the first load it also opens without internet. Your data stays on this phone unless you sign in with Google.</p>`
+  : `
+    <h2>How to use RepForge</h2>
+    <ol style="${L}">
+      <li><b>Plan tab:</b> tap <i>Load Muscle Gain + Recomp plan</i> or build your own days. Set sets, reps and rest times.</li>
+      <li><b>Home:</b> tap <i>Start today's workout</i>.</li>
+      <li><b>Workout tab:</b> tap <b>Start</b> on an exercise, enter weight and reps, tap <b>Log set</b>.</li>
+      <li>A rest timer runs after each set. It beeps in the last 3 seconds and when time is up. The longer rest comes after the last set of an exercise.</li>
+      <li><b>Plank, hangs and holds:</b> tap <i>Start hold timer</i>. The set logs itself when the time ends.</li>
+      <li>The exercise ticks ✓ after its last set and the next one opens. You can also tick it yourself.</li>
+      <li>Tap <b>Finish workout</b> to see your summary. Past workouts are in the History tab.</li>
+      <li><b>⋮ menu:</b> sign in with Google to sync across phones, or export a JSON backup.</li>
+    </ol>
+    <p class="muted" style="text-align:left;margin:14px 0">Keep the app open during a workout so timers and beeps work.</p>`;
+  $('#summary').innerHTML = `<div class="sumcard" style="text-align:left">${body}<button class="primary" data-act="close-summary">Got it</button></div>`;
+  $('#summary').classList.remove('hidden');
 }
 
 function showSummary(s, prs) {
@@ -1164,6 +1206,8 @@ document.addEventListener('click', (e) => {
     if (!confirm('Sign out? Your data stays safe in your account.')) return;
     flushMeta(); setTimeout(() => signOut(auth), 300);
   }
+  else if (act === 'help-install') showHelp('install');
+  else if (act === 'help-use') showHelp('use');
   else if (act === 'theme') applyTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light');
   else if (act === 'export') {
     const data = { exercises: state.exercises, sessions: state.sessions, plan: state.plan, profile: state.profile };
