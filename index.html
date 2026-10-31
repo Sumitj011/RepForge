@@ -1,6 +1,9 @@
 <!doctype html>
 <html lang="en">
 <head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0f1115">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icon-192.png">
 <script>
@@ -8,9 +11,6 @@ window.__ip = null;
 addEventListener('beforeinstallprompt', e => { e.preventDefault(); window.__ip = e; });
 addEventListener('appinstalled', () => { window.__ip = null; });
 </script>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0f1115">
 <title>RepForge</title>
 <style>
 :root{
@@ -95,6 +95,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .sumgrid div{background:var(--card2);border-radius:14px;padding:12px}
 .sumgrid b{display:block;font-size:24px}
 .sumgrid span{font-size:12px;color:var(--muted)}
+.choice button{display:block;width:100%;margin-top:8px;padding:13px;text-align:center}
 
 /* exercise checklist */
 [data-ex]{scroll-margin-top:70px}
@@ -108,6 +109,8 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .exrow.isdone .start{background:var(--card2);color:var(--text);border-color:var(--line);font-weight:400}
 .wprog{height:8px;background:var(--card2);border-radius:99px;overflow:hidden;margin:6px 0 14px}
 .wprog i{display:block;height:100%;background:var(--ok);transition:width .25s}
+.sugg{margin-top:8px;background:var(--card2);border:1px dashed var(--accent);border-radius:10px;padding:8px 10px;font-size:13px}
+.sugg button{margin-left:6px;padding:4px 10px;font-size:12px}
 
 /* menu */
 .menu-wrap{position:relative;display:flex;align-items:center}
@@ -121,7 +124,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 
 /* toast */
 .toast{position:fixed;top:70px;left:50%;transform:translateX(-50%) translateY(-20px);background:var(--text);
-  color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:30;opacity:0;pointer-events:none;
+  color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:50;opacity:0;pointer-events:none;
   transition:.25s;max-width:90%;text-align:center}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -163,10 +166,10 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .plan-ex .nm{flex:1;min-width:0}
 .plan-ex .n{color:var(--muted);width:20px}
 .plan-ex button{background:none;border:0;color:var(--muted);font-size:16px;cursor:pointer;padding:4px 6px}
-.plan-ex .cfg{flex-basis:100%;display:flex;gap:8px;padding-left:28px}
+.plan-ex .cfg{flex-basis:100%;display:flex;flex-wrap:wrap;gap:8px;padding-left:28px}
 .plan-ex .cfg > div{flex:1}
 .plan-ex .cfg > div.sm{flex:0 0 72px}
-.plan-ex .cfg input{padding:8px;font-size:15px;background:var(--card)}
+.plan-ex .cfg input,.plan-ex .cfg select{padding:8px;font-size:15px;background:var(--card)}
 
 /* body */
 .bmi-num{font-size:46px;font-weight:800;line-height:1}
@@ -192,7 +195,7 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
   </div>
 </header>
 
-<main id="view"></main>
+<main id="view"><div class="empty">Loading…</div></main>
 
 <div class="restbar" id="restbar">
   <div class="row between">
@@ -223,24 +226,21 @@ label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 <input type="file" id="importFile" accept="application/json" class="hidden">
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, signInWithPopup, signInWithRedirect, GoogleAuthProvider, signOut }
-  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { initializeFirestore, getFirestore, persistentLocalCache, persistentMultipleTabManager,
-  doc, collection, query, orderBy, onSnapshot, setDoc, deleteDoc, writeBatch }
-  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-
 /* =====================================================================
-   FIREBASE (optional sign-in)
+   FIREBASE (optional sign-in) — loaded dynamically so the app still
+   works (guest mode, data on this device) if Firebase can't be reached,
+   e.g. when you open it offline for the first time.
+
    Guest mode: everything is saved on this device (localStorage).
    Signed in: data lives in Firestore and syncs across devices.
      users/{uid}/meta/state      -> { exercises, active, plan, profile, updatedAt }
      users/{uid}/sessions/{id}   -> one finished workout per document
 
-   Exercise:  { id, name, rest, restEx }
+   Exercise:  { id, name, type?, rest, restEx }
      rest   = seconds of rest between sets of this exercise
      restEx = seconds of rest after the LAST set, before the next exercise
-   Plan day:  { on, name, ex:[ids], cfg:{ [exId]:{ sets, reps } } }
+   Plan day:  { on, name, ex:[ids], cfg:{ [exId]:{ sets, reps, type? } } }
+     cfg.type overrides the exercise type for that plan day (weight | bw | timed)
    ===================================================================== */
 const firebaseConfig = {
   apiKey: "AIzaSyB0OKzT7-bpoVSSlQtMP1P51U-ZC_vUHcw",
@@ -250,12 +250,25 @@ const firebaseConfig = {
   messagingSenderId: "1085511970911",
   appId: "1:1085511970911:web:68ad123861823a5cd46bea"
 };
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-let db;
+const FB_URL = "https://www.gstatic.com/firebasejs/10.14.1/";
+let FB = null, auth = null, db = null;
 try {
-  db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
-} catch (e) { db = getFirestore(app); }
+  const [A, Au, Fs] = await Promise.race([
+    Promise.all([import(FB_URL + "firebase-app.js"), import(FB_URL + "firebase-auth.js"), import(FB_URL + "firebase-firestore.js")]),
+    new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000))
+  ]);
+  FB = { ...A, ...Au, ...Fs };
+  const app = FB.initializeApp(firebaseConfig);
+  auth = FB.getAuth(app);
+  try {
+    db = FB.initializeFirestore(app, { localCache: FB.persistentLocalCache({ tabManager: FB.persistentMultipleTabManager() }) });
+  } catch (e) { db = FB.getFirestore(app); }
+} catch (e) {
+  console.warn('Firebase unavailable — guest mode only', e);
+  FB = null;
+}
+const { doc, collection, query, orderBy, onSnapshot, setDoc, deleteDoc, writeBatch,
+  GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut, onAuthStateChanged } = FB || {};
 
 /* ---------- helpers ---------- */
 const $ = (s) => document.querySelector(s);
@@ -278,19 +291,39 @@ const exRest = (ex) => ex.restEx == null ? DEF_REST_EX : ex.restEx;
 
 /* exercise types: 'weight' (kg x reps), 'bw' (bodyweight reps, optional extra kg), 'timed' (hold + countdown) */
 const TIMED_RE = /^(plank|side plank|dead hang|deep squat hold|forward fold)/i;
-const BW_RE = /^(pull-ups|push-ups|close-grip push-ups|hanging (knee|leg) raises|reverse crunch|russian twist|walking lunges|bicycle crunch|cat-cow|world's greatest stretch|shoulder dislocates|glute bridges|90\/90|ankle mobility|thoracic rotations|chin-ups|dips|sit-ups|crunch)/i;
-const exType = (ex) => ex.type || (TIMED_RE.test(ex.name) ? 'timed' : BW_RE.test(ex.name) ? 'bw' : 'weight');
+const BW_RE = /^(pull-ups|push-ups|close-grip push-ups|hanging (knee|leg) raises|reverse crunch|russian twist|walking lunges|reverse lunges|step-ups|single-leg calf raises|bicycle crunch|cat-cow|world's greatest stretch|shoulder dislocates|glute bridges|90\/90|ankle mobility|thoracic rotations|chin-ups|dips|sit-ups|crunch)/i;
+const guessType = (name) => TIMED_RE.test(name) ? 'timed' : BW_RE.test(name) ? 'bw' : 'weight';
+const exType = (ex) => ex.type || guessType(ex.name);
 const entType = (en) => en.type || exType(exById(en.exId) || { name: en.name || '' });
-const TYPE_NAMES = { weight: 'Weights (kg × reps)', bw: 'Bodyweight (reps)', timed: 'Timed hold (seconds)' };
+const TYPE_NAMES = { weight: 'Weights (kg × reps)', bw: 'Bodyweight (reps)', timed: 'Timer / hold (seconds)' };
 const typeOptions = (sel) => Object.keys(TYPE_NAMES).map(k => `<option value="${k}" ${k === sel ? 'selected' : ''}>${TYPE_NAMES[k]}</option>`).join('');
-function parseSec(txt) {
+function parseSec(txt, bare) {
   if (!txt) return 0;
   const m = String(txt).match(/(\d+(?:\.\d+)?)/); if (!m) return 0;
   const n = parseFloat(m[1]);
-  return /min/i.test(txt) ? Math.round(n * 60) : /sec/i.test(txt) ? Math.round(n) : 0;
+  return /min/i.test(txt) ? Math.round(n * 60) : /sec/i.test(txt) ? Math.round(n) : bare ? Math.round(n) : 0;
 }
 const setLong = (x) => x.s ? x.s + ' sec' : x.w ? x.w + ' kg × ' + x.r : x.r + ' reps';
 const setShort = (x) => x.s ? x.s + 's' : x.w ? x.w + '×' + x.r : x.r + ' reps';
+
+/* smart rest defaults: [between sets, after exercise] in seconds */
+const COMP_W = /(squat|deadlift|press|row|hip thrust)/i;
+const COMP_BW = /(pull-ups|push-ups|chin-ups|dips|lunge|step-ups)/i;
+function smartRest(name, type) {
+  const ty = type || guessType(name);
+  if (ty === 'timed') return [30, 45];
+  if (ty === 'weight' && COMP_W.test(name)) return [90, 120];
+  if (COMP_BW.test(name)) return [60, 90];
+  if (ty === 'bw') return [30, 45];
+  return [45, 60];
+}
+
+/* volume: bodyweight sets count (body weight + extra kg) when you've saved your weight in the Body tab */
+const bwKg = () => (state.profile && state.profile.weight) || 0;
+const entVol = (e) => {
+  const bw = entType(e) === 'bw' ? bwKg() : 0;
+  return e.sets.reduce((t, x) => x.s ? t : t + (bw + (x.w || 0)) * (x.r || 0), 0);
+};
 
 let toastT;
 function toast(msg) {
@@ -405,7 +438,7 @@ function buildMyPlan(exercises) {
     const ex = [], cfg = {};
     p[1].forEach(([name, sets, reps]) => {
       let e = byName.get(name.toLowerCase());
-      if (!e) { e = { id: uid(), name, rest: DEF_REST, restEx: DEF_REST_EX }; exercises.push(e); byName.set(name.toLowerCase(), e); }
+      if (!e) { const [r, x] = smartRest(name); e = { id: uid(), name, rest: r, restEx: x }; exercises.push(e); byName.set(name.toLowerCase(), e); }
       if (!ex.includes(e.id)) { ex.push(e.id); cfg[e.id] = { sets, reps }; }
     });
     return { on: true, name: p[0], ex, cfg };
@@ -432,6 +465,8 @@ let timerId = null;
 let wakeLock = null;
 let guestAsked = false;
 let openEx = null;      // exercise currently expanded in the workout checklist
+let histEx = null;      // exercise selected in the History progress chart
+let pendingRest = null; // rest change waiting for the "where to apply" choice
 
 const exById = (id) => state.exercises.find(e => e.id === id);
 
@@ -596,7 +631,7 @@ function refresh() {
 }
 
 /* ---------- auth ---------- */
-onAuthStateChanged(auth, (u) => {
+function onAuth(u) {
   unsubs.forEach(f => f()); unsubs = [];
   clearTimeout(metaTimer); metaTimer = null;
   authResolved = true; user = u;
@@ -611,7 +646,9 @@ onAuthStateChanged(auth, (u) => {
     if (state.active) keepAwake(true);
   }
   render(); setStatus();
-});
+}
+if (FB) onAuthStateChanged(auth, onAuth);
+else setTimeout(() => { onAuth(null); toast('Offline mode: data is saved on this device. Sign-in needs internet.'); }, 0);
 
 /* ---------- derived data ---------- */
 function lastSet(exId) {
@@ -621,16 +658,46 @@ function lastSet(exId) {
   }
   return null;
 }
+function lastEntry(exId) {                            // whole last session of this exercise
+  for (let i = state.sessions.length - 1; i >= 0; i--) {
+    const en = state.sessions[i].entries.find(e => e.exId === exId && e.sets.length);
+    if (en) return { entry: en, date: state.sessions[i].date };
+  }
+  return null;
+}
 function bestWeight(exId) {
   let best = 0;
   state.sessions.forEach(s => s.entries.forEach(e => { if (e.exId === exId) e.sets.forEach(x => { if (x.w > best) best = x.w; }); }));
   if (state.active) state.active.entries.forEach(e => { if (e.exId === exId) e.sets.forEach(x => { if (x.w > best) best = x.w; }); });
   return best;
 }
+/* progressive overload hint based on the last session of this exercise */
+function suggest(en) {
+  const le = lastEntry(en.exId); if (!le) return null;
+  const sets = le.entry.sets, ty = entType(en);
+  if (ty === 'timed') {
+    const mx = Math.max(0, ...sets.map(x => x.s || 0)); if (!mx) return null;
+    return { text: 'Pichli baar best hold ' + mx + ' sec. Aaj ' + (mx + 5) + ' sec try karo.', f: 't', v: mx + 5 };
+  }
+  const m = String(en.repsTxt || '').match(/(\d+)\s*[–-]\s*(\d+)/);
+  const top = m ? +m[2] : 0;
+  const w = Math.max(0, ...sets.map(x => x.w || 0));
+  const minR = Math.min(...sets.map(x => x.r || 0));
+  const enough = en.target ? sets.length >= en.target : sets.length >= 2;
+  if (ty === 'weight') {
+    if (top && enough && minR >= top) return { text: 'Pichli baar saare sets ' + top + '+ reps hue. Aaj ' + (w + 2.5) + ' kg try karo.', f: 'w', v: w + 2.5 };
+    if (top) return { text: 'Same ' + w + ' kg rakho, har set me ' + top + ' reps tak pahucho (pichli baar min ' + minR + ').' };
+    return { text: 'Pichli baar ' + w + ' kg × ' + minR + '+ reps. Aaj ek rep ya thoda weight badhao.' };
+  }
+  if (top && enough && minR >= top) return { text: 'Saare sets ' + top + '+ reps hue. Extra ' + (w + 2.5) + ' kg ya slow tempo try karo.', f: 'w', v: w + 2.5 };
+  if (top) return { text: 'Target ' + top + ' reps; pichli baar min ' + minR + '. Aaj ek rep zyada karo.' };
+  return { text: 'Pichli baar min ' + minR + ' reps. Aaj +1 rep try karo.' };
+}
 function makeEntry(id, c) {
-  const ex = exById(id), p = lastSet(id), ty = exType(ex);
+  const ex = exById(id), p = lastSet(id);
+  const ty = (c && c.type) || exType(ex);
   const en = { exId: id, name: ex.name, type: ty, w: p ? p.w : (ty === 'weight' ? 20 : 0), r: p && p.r ? p.r : 10, sets: [] };
-  if (ty === 'timed') en.t = parseSec(c && c.reps) || (p && p.s) || 30;
+  if (ty === 'timed') en.t = parseSec(c && c.reps, true) || (p && p.s) || 30;
   if (c && c.sets) { en.target = c.sets; en.repsTxt = c.reps || ''; }
   return en;
 }
@@ -673,7 +740,7 @@ function viewHome() {
   const greet = h < 5 ? 'Late night grind' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : h < 21 ? 'Good evening' : 'Good night';
   const name = user && user.displayName ? user.displayName.split(' ')[0] : 'champ';
   const wk = state.sessions.filter(s => s.date >= mon);
-  const vol = wk.reduce((t, s) => t + s.entries.reduce((a, e) => a + e.sets.reduce((b, x) => b + x.w * x.r, 0), 0), 0);
+  const vol = wk.reduce((t, s) => t + s.entries.reduce((a, e) => a + entVol(e), 0), 0);
   const volTxt = vol >= 1000 ? (vol / 1000).toFixed(1) + 't' : Math.round(vol) + 'kg';
   const pd = state.plan.days[ti];
   const planned = pd.ex.filter(exById);
@@ -778,7 +845,7 @@ function entryRow(en) {                       // collapsed checklist row: tick +
   const info = (tg ? `${n} / ${tg} sets` + (en.repsTxt ? ' · ' + esc(en.repsTxt) : '') : `${n} sets logged`);
   return `<div class="card exrow ${en.done ? 'isdone' : ''}" data-ex="${en.exId}">
     <button class="tick ${en.done ? 'on' : ''}" data-act="toggle-done" aria-label="Mark exercise done">${en.done ? '✓' : ''}</button>
-    <div class="info"><h3>${esc(ex.name)}</h3><div class="muted">${info}</div></div>
+    <div class="info"><h3>${esc(ex.name)}${entType(en) === 'timed' ? ' ⏱' : ''}</h3><div class="muted">${info}</div></div>
     <button class="ghost start" data-act="open-ex">${en.done ? 'View' : n ? 'Continue' : 'Start'}</button>
   </div>`;
 }
@@ -810,12 +877,16 @@ function entryLogBtn(en) {
 }
 function entryCard(en) {
   const ex = exById(en.exId); if (!ex) return '';
-  const prev = lastSet(en.exId);
+  const le = lastEntry(en.exId);
+  const sg = en.done ? null : suggest(en);
   const done = en.sets.length, tg = en.target || 0;
   const badge = tg
     ? (done >= tg ? `<span class="badge ok">All ${tg} sets done ✓</span>` : `<span class="badge">Set ${done + 1} of ${tg}</span>`)
     : '';
   const tgt = tg && en.repsTxt ? `Target: ${tg} × ${esc(en.repsTxt)}` : '';
+  const lastTxt = le
+    ? `Last time (${new Date(le.date).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}): ${le.entry.sets.map(setShort).join(' · ')}`
+    : 'First time — no history yet';
   return `<div class="card" data-ex="${en.exId}">
     <div class="row between">
       <div class="row" style="min-width:0">
@@ -828,7 +899,12 @@ function entryCard(en) {
       </div>
     </div>
     ${tgt ? `<div class="muted" style="margin-top:2px"><b>${tgt}</b></div>` : ''}
-    <div class="muted">${prev ? `Last time: ${setLong(prev)}` : 'First time — no history yet'}</div>
+    <div class="muted">${lastTxt}</div>
+    ${sg ? `<div class="sugg">💡 ${esc(sg.text)}${sg.f ? `<button class="ghost" data-act="apply-sugg" data-f="${sg.f}" data-v="${sg.v}">Use</button>` : ''}</div>` : ''}
+    <div class="row" style="margin-top:10px">
+      <label style="margin:0;white-space:nowrap">Type</label>
+      <select data-f="etype">${typeOptions(entType(en))}</select>
+    </div>
     ${entryInputs(en)}
     <div class="row">
       <div style="flex:1"><label>Rest between sets (sec)</label>
@@ -867,14 +943,15 @@ function viewPlan() {
       ${d.on ? `
         <div style="margin-top:12px"><label>Workout name</label>
           <input data-f="planname" value="${esc(d.name)}" placeholder="e.g. Chest &amp; Triceps" maxlength="30"></div>
-        ${list.length ? list.map((e, k) => { const c = d.cfg[e.id] || {}; return `
-          <div class="plan-ex"><span class="n">${k + 1}</span><span class="nm">${esc(e.name)}</span>
+        ${list.length ? list.map((e, k) => { const c = d.cfg[e.id] || {}; const ty = c.type || exType(e); return `
+          <div class="plan-ex"><span class="n">${k + 1}</span><span class="nm">${esc(e.name)}${ty === 'timed' ? ' ⏱' : ''}</span>
             <button data-act="pex-up" data-k="${k}" title="Move up">▲</button>
             <button data-act="pex-down" data-k="${k}" title="Move down">▼</button>
             <button data-act="pex-del" data-k="${k}" title="Remove">✕</button>
             <div class="cfg">
               <div class="sm"><label>Sets</label><input data-f="psets" data-id="${e.id}" type="number" inputmode="numeric" value="${c.sets || ''}" placeholder="3"></div>
-              <div><label>Reps / time</label><input data-f="preps" data-id="${e.id}" value="${esc(c.reps || '')}" placeholder="8–12" maxlength="30"></div>
+              <div><label>${ty === 'timed' ? 'Time (sec)' : 'Reps / time'}</label><input data-f="preps" data-id="${e.id}" value="${esc(c.reps || '')}" placeholder="${ty === 'timed' ? '45 sec' : '8–12'}" maxlength="30"></div>
+              <div style="flex-basis:100%"><label>Type (timer ya reps)</label><select data-f="ptype" data-id="${e.id}">${typeOptions(ty)}</select></div>
             </div></div>`; }).join('') : '<div class="muted" style="margin-top:12px">No exercises for this day yet.</div>'}
         <div class="row" style="margin-top:12px">
           <select id="dayAddSel">${avail.length ? avail.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('') : '<option value="">All exercises added</option>'}</select>
@@ -899,14 +976,15 @@ function viewPlan() {
       <div class="row" style="margin:10px 0;flex-wrap:wrap">
         ${[20, 30, 35, 45, 60, 90].map(s => `<button class="ghost" data-act="rest-preset" data-s="${s}">${fmtRest(s)}</button>`).join('')}
       </div>
-      <div class="muted" style="margin:-4px 0 10px">Quick buttons fill the "between sets" box.</div>
+      <div class="muted" style="margin:-4px 0 10px">Quick buttons fill the "between sets" box. Typing a name auto-fills smart rest times and type.</div>
       <div style="margin-bottom:12px"><label>Exercise type</label>
         <select id="newType">${typeOptions('weight')}</select></div>
       <button class="primary" data-act="add-ex">Add exercise</button>
     </div>
     <div class="card">
       <h2>Your exercises</h2>
-      <div class="muted" style="margin-bottom:12px"><b>Set</b> = rest between sets · <b>Ex</b> = rest after the last set, before the next exercise. You can still change both during a workout.</div>
+      <div class="muted" style="margin-bottom:12px"><b>Set</b> = rest between sets · <b>Ex</b> = rest after the last set, before the next exercise. When you change a rest time, the app asks whether to apply it to this exercise only or to all.</div>
+      <button class="ghost" style="margin-bottom:12px" data-act="smart-rest-all">Apply smart rest times to all exercises</button>
       ${state.exercises.length ? state.exercises.map(e => `
         <div class="ex-item" data-id="${e.id}">
           <div><label>Name</label><input data-f="name" value="${esc(e.name)}" maxlength="40"></div>
@@ -918,10 +996,40 @@ function viewPlan() {
     </div>`;
 }
 
+/* progress chart for one exercise (History tab) */
+function exMetric(e) {
+  const ty = entType(e);
+  if (ty === 'timed') return { v: Math.max(0, ...e.sets.map(x => x.s || 0)), unit: 'sec hold' };
+  if (ty === 'bw') return { v: Math.max(0, ...e.sets.map(x => x.r || 0)), unit: 'reps' };
+  const v = Math.max(0, ...e.sets.map(x => (x.w || 0) * (1 + (x.r || 0) / 30)));
+  return { v: Math.round(v * 10) / 10, unit: 'kg (est. 1RM)' };
+}
+function progressCard() {
+  const names = new Map();
+  state.sessions.forEach(s => s.entries.forEach(e => { if (e.sets.length) names.set(e.exId, e.name); }));
+  if (!names.size) return '';
+  const opts = [...names.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  if (!histEx || !names.has(histEx)) histEx = opts[0][0];
+  const pts = []; let unit = '';
+  state.sessions.forEach(s => {
+    const e = s.entries.find(x => x.exId === histEx && x.sets.length);
+    if (!e) return;
+    const m = exMetric(e);
+    if (m.v > 0) { pts.push({ d: dateStr(s.date).slice(5), v: m.v }); unit = m.unit; }
+  });
+  const best = pts.length ? Math.max(...pts.map(p => p.v)) : 0;
+  return `<div class="card">
+    <h2>Exercise progress</h2>
+    <select id="progSel" style="margin:8px 0 10px">${opts.map(([id, n]) => `<option value="${id}" ${id === histEx ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>
+    ${svgLine(pts, unit, 'Is exercise ko 2 alag din log karo, tab graph dikhega.')}
+    ${best ? `<div class="muted" style="margin-top:4px">Best: <b>${best} ${unit}</b> · ${pts.length} sessions</div>` : ''}
+  </div>`;
+}
+
 function viewHistory() {
   const list = [...state.sessions].reverse();
-  return list.length ? list.map(s => {
-    const vol = s.entries.reduce((t, e) => t + e.sets.reduce((a, x) => a + x.w * x.r, 0), 0);
+  const items = list.length ? list.map(s => {
+    const vol = s.entries.reduce((t, e) => t + entVol(e), 0);
     const sets = s.entries.reduce((t, e) => t + e.sets.length, 0);
     return `<div class="card" data-sid="${s.id}">
       <div class="row between">
@@ -933,24 +1041,26 @@ function viewHistory() {
         ${e.sets.map(x => `<span class="chip">${setShort(x)}</span>`).join(' ')}</div>`).join('')}
     </div>`;
   }).join('') : '<div class="empty">No workouts yet.<br>Finish one and it will show up here.</div>';
+  return progressCard() + items;
 }
 
-function weightChart(ws) {
-  if (ws.length < 2) return '<div class="muted">Save your weight on a few different days to see your trend here.</div>';
-  const a = ws.slice(-30), W = 300, H = 110, P = 14;
-  const vals = a.map(x => x.w);
+function svgLine(pts, unit, emptyMsg) {
+  if (pts.length < 2) return '<div class="muted">' + esc(emptyMsg) + '</div>';
+  const a = pts.slice(-30), W = 300, H = 110, P = 14;
+  const vals = a.map(x => x.v);
   const lo = Math.min(...vals), hi = Math.max(...vals);
   let mn = lo, mx = hi; if (mx - mn < 1) { mx += 0.5; mn -= 0.5; }
   const x = (i) => P + (W - 2 * P) * (i / (a.length - 1));
   const y = (v) => H - P - (H - 2 * P) * ((v - mn) / (mx - mn));
-  const pts = a.map((p, i) => x(i).toFixed(1) + ',' + y(p.w).toFixed(1)).join(' ');
+  const line = a.map((p, i) => x(i).toFixed(1) + ',' + y(p.v).toFixed(1)).join(' ');
   return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
-    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    ${a.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.w).toFixed(1)}" r="3.5" fill="var(--accent)"/>`).join('')}
+    <polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+    ${a.map((p, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3.5" fill="var(--accent)"/>`).join('')}
     <text x="${P}" y="${H - 1}" font-size="9" fill="var(--muted)">${a[0].d}</text>
     <text x="${W - P}" y="${H - 1}" font-size="9" fill="var(--muted)" text-anchor="end">${a[a.length - 1].d}</text></svg>
-    <div class="muted">Range ${lo} – ${hi} kg</div>`;
+    <div class="muted">Range ${lo} – ${hi} ${esc(unit)}</div>`;
 }
+const weightChart = (ws) => svgLine(ws.map(x => ({ d: x.d, v: x.w })), 'kg', 'Save your weight on a few different days to see your trend here.');
 
 function viewBody() {
   const p = state.profile;
@@ -984,7 +1094,7 @@ function viewBody() {
     </div>
     <div class="card">
       <h2>Weight trend</h2>
-      <div class="muted" style="margin-bottom:8px">Each time you save, today's weight is logged.</div>
+      <div class="muted" style="margin-bottom:8px">Each time you save, today's weight is logged. Your saved weight is also used to count bodyweight exercises (pull-ups, push-ups…) in workout volume.</div>
       ${weightChart(ws)}
       ${ws.length ? `<div style="margin-top:10px">${[...ws].reverse().slice(0, 6).map(x => `
         <div class="set" style="margin-top:6px"><span>${x.d}</span><span>${x.w} kg</span>
@@ -1086,6 +1196,38 @@ function logSet(en, set) {
   if (pr) toast('🏆 New PR on ' + ex.name + ': ' + set.w + ' kg');
 }
 
+/* ---------- rest change: ask where to apply ---------- */
+function askRest(exId, f, v, old) {
+  if (v === old) return;
+  const ex = exById(exId); if (!ex) return;
+  pendingRest = { exId, f, v };
+  const lbl = f === 'rest' ? 'Rest between sets' : 'Rest after exercise';
+  $('#summary').innerHTML = `<div class="sumcard choice" style="text-align:left">
+    <h2>Rest time badla</h2>
+    <p class="muted" style="margin:6px 0 4px">${lbl}: <b>${old} → ${v} sec</b></p>
+    <p style="margin:6px 0 10px">Ye change kahan lagana hai?</p>
+    <button class="primary" data-act="rc-one">Sirf ${esc(ex.name)}</button>
+    ${state.active ? '<button class="ghost" data-act="rc-workout">Is workout ke saare exercises</button>' : ''}
+    <button class="ghost" data-act="rc-all">Saare exercises (poore app me)</button>
+    <button class="ghost danger" data-act="rc-cancel">Cancel</button>
+  </div>`;
+  $('#summary').classList.remove('hidden');
+}
+function applyRest(scope) {
+  const p = pendingRest; pendingRest = null;
+  $('#summary').classList.add('hidden');
+  if (p && scope !== 'cancel') {
+    let list;
+    if (scope === 'one') list = [exById(p.exId)];
+    else if (scope === 'workout' && state.active) list = state.active.entries.map(e => exById(e.exId));
+    else list = state.exercises;
+    list.filter(Boolean).forEach(e => { e[p.f] = p.v; });
+    persist();
+    toast('Rest ' + p.v + ' sec: ' + (scope === 'one' ? 'sirf ek exercise me' : scope === 'workout' ? 'is workout ke saare exercises me' : 'saare exercises me') + ' laga diya');
+  }
+  render();
+}
+
 function showHelp(kind) {
   const L = 'text-align:left;margin:6px 0 0;padding-left:20px;line-height:1.5';
   const body = kind === 'install' ? `
@@ -1108,13 +1250,14 @@ function showHelp(kind) {
   : `
     <h2>How to use RepForge</h2>
     <ol style="${L}">
-      <li><b>Plan tab:</b> tap <i>Load Muscle Gain + Recomp plan</i> or build your own days. Set sets, reps and rest times.</li>
+      <li><b>Plan tab:</b> tap <i>Load Muscle Gain + Recomp plan</i> or build your own days. Set sets and reps for each exercise. Neeche <b>Type</b> se choose karo: <b>Timer / hold</b> ya <b>Reps</b> (weights ya bodyweight).</li>
       <li><b>Home:</b> tap <i>Start today's workout</i>.</li>
-      <li><b>Workout tab:</b> tap <b>Start</b> on an exercise, enter weight and reps, tap <b>Log set</b>.</li>
+      <li><b>Workout tab:</b> tap <b>Start</b> on an exercise, enter weight and reps, tap <b>Log set</b>. 💡 box pichli baar ke hisaab se aaj ka target batata hai.</li>
       <li>A rest timer runs after each set. It beeps in the last 3 seconds and when time is up. The longer rest comes after the last set of an exercise.</li>
+      <li>Rest time badlo to app puchta hai: sirf is exercise me, is workout me, ya saare exercises me.</li>
       <li><b>Plank, hangs and holds:</b> tap <i>Start hold timer</i>. The set logs itself when the time ends.</li>
       <li>The exercise ticks ✓ after its last set and the next one opens. You can also tick it yourself.</li>
-      <li>Tap <b>Finish workout</b> to see your summary. Past workouts are in the History tab.</li>
+      <li>Tap <b>Finish workout</b> to see your summary. History tab me har exercise ka progress graph milta hai.</li>
       <li><b>⋮ menu:</b> sign in with Google to sync across phones, or export a JSON backup.</li>
     </ol>
     <p class="muted" style="text-align:left;margin:14px 0">Keep the app open during a workout so timers and beeps work.</p>`;
@@ -1124,7 +1267,7 @@ function showHelp(kind) {
 
 function showSummary(s, prs) {
   const sets = s.entries.reduce((t, e) => t + e.sets.length, 0);
-  const vol = s.entries.reduce((t, e) => t + e.sets.reduce((a, x) => a + x.w * x.r, 0), 0);
+  const vol = s.entries.reduce((t, e) => t + entVol(e), 0);
   const volTxt = vol >= 1000 ? (vol / 1000).toFixed(1) + ' t' : vol ? Math.round(vol) + ' kg' : '—';
   $('#summary').innerHTML = `<div class="sumcard">
     <div style="font-size:46px">🎉</div>
@@ -1178,6 +1321,23 @@ function addToDay(d, id) {
   if (!d.cfg[id]) d.cfg[id] = { sets: 3, reps: '' };
 }
 
+/* ---------- import validation ---------- */
+function cleanImport(d) {
+  if (!d || !Array.isArray(d.exercises) || !Array.isArray(d.sessions)) throw new Error('bad');
+  const exercises = d.exercises.filter(e => e && typeof e.name === 'string' && e.name.trim()).map(e => ({
+    ...e, id: String(e.id || uid()), name: e.name.trim(),
+    rest: Math.max(5, num(e.rest, DEF_REST)), restEx: e.restEx == null ? DEF_REST_EX : Math.max(5, num(e.restEx, DEF_REST_EX))
+  }));
+  const sessions = d.sessions.filter(s => s && Array.isArray(s.entries)).map(s => ({
+    id: String(s.id || uid()), date: num(s.date, Date.now()), label: String(s.label || ''), duration: Math.max(1, num(s.duration, 1)),
+    entries: s.entries.filter(en => en && Array.isArray(en.sets)).map(en => ({
+      exId: String(en.exId || ''), name: String(en.name || ''), ...(en.type ? { type: String(en.type) } : {}),
+      sets: en.sets.filter(x => x && typeof x === 'object').map(x => ({ w: num(x.w), r: num(x.r), ...(x.s ? { s: num(x.s) } : {}), ...(x.t ? { t: num(x.t) } : {}) }))
+    }))
+  }));
+  return { exercises, sessions, plan: normPlan(d.plan), profile: normProfile(d.profile) };
+}
+
 /* ---------- actions ---------- */
 function entryOf(el) {
   const card = el.closest('[data-ex]'); if (!card || !state.active) return [null, null];
@@ -1193,8 +1353,15 @@ document.addEventListener('click', (e) => {
   if (t.dataset.tab) { tab = t.dataset.tab; render(); window.scrollTo(0, 0); return; }
   const act = t.dataset.act;
 
+  /* rest-change popup */
+  if (act === 'rc-one') return applyRest('one');
+  if (act === 'rc-workout') return applyRest('workout');
+  if (act === 'rc-all') return applyRest('all');
+  if (act === 'rc-cancel') return applyRest('cancel');
+
   /* account + app */
   if (act === 'login') {
+    if (!FB) { toast('Sign-in ke liye internet chahiye. Page reload karo.'); return; }
     const provider = new GoogleAuthProvider();
     signInWithPopup(auth, provider).catch(err => {
       if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment') return signInWithRedirect(auth, provider);
@@ -1253,7 +1420,12 @@ document.addEventListener('click', (e) => {
   }
   else if (act === 'close-ex') { openEx = null; render(); }
   else if (act === 'close-summary') $('#summary').classList.add('hidden');
+  else if (act === 'apply-sugg') {
+    const [en] = entryOf(t); if (!en) return;
+    en[t.dataset.f] = num(t.dataset.v); persist(); render();
+  }
   else if (act === 'hold-start') {
+    if (pendingRest) return;
     const [en, card] = entryOf(t); const ex = exById(en.exId);
     const rIn = card.querySelector('input[data-f="rest"]'), xIn = card.querySelector('input[data-f="restEx"]');
     if (rIn) ex.rest = Math.max(5, num(rIn.value, ex.rest));
@@ -1271,6 +1443,7 @@ document.addEventListener('click', (e) => {
     card.querySelector(`input[data-f="${f}"]`).value = en[f]; persist();
   }
   else if (act === 'log') {
+    if (pendingRest) return;
     const [en, card] = entryOf(t); const ex = exById(en.exId);
     const timed = entType(en) === 'timed';
     if (timed ? num(en.t, 30) <= 0 : num(en.r) <= 0) { toast(timed ? 'Enter seconds first' : 'Enter reps first'); return; }
@@ -1287,7 +1460,7 @@ document.addEventListener('click', (e) => {
   }
   else if (act === 'finish') {
     const a = state.active;
-    const entries = a.entries.filter(x => x.sets.length).map(x => ({ exId: x.exId, name: x.name, sets: x.sets }));
+    const entries = a.entries.filter(x => x.sets.length).map(x => ({ exId: x.exId, name: x.name, type: entType(x), sets: x.sets }));
     if (!entries.length) { if (confirm('No sets logged. Discard this workout?')) { state.active = null; persist(); stopRest(); keepAwake(false); render(); } return; }
     const left = a.entries.filter(x => x.target && !x.done).length;
     if (left && !confirm(left + ' planned exercise(s) not marked done. Finish workout anyway?')) return;
@@ -1325,7 +1498,7 @@ document.addEventListener('click', (e) => {
   else if (act === 'plan-create') {
     const name = $('#dayNewEx').value.trim(); if (!name) { $('#dayNewEx').focus(); return; }
     let ex = state.exercises.find(x => x.name.toLowerCase() === name.toLowerCase());
-    if (!ex) { ex = { id: uid(), name, rest: DEF_REST, restEx: DEF_REST_EX }; state.exercises.push(ex); }
+    if (!ex) { const [r, x] = smartRest(name); ex = { id: uid(), name, rest: r, restEx: x }; state.exercises.push(ex); }
     addToDay(state.plan.days[planSel], ex.id);
     persist(); render();
   }
@@ -1342,7 +1515,12 @@ document.addEventListener('click', (e) => {
   else if (act === 'plan-clear') {
     if (confirm('Remove all exercises from ' + FULL[planSel] + '?')) { const d = state.plan.days[planSel]; d.ex = []; d.cfg = {}; d.name = ''; persist(); render(); }
   }
-  else if (act === 'rest-preset') $('#newRest').value = t.dataset.s;
+  else if (act === 'rest-preset') { const r = $('#newRest'); r.value = t.dataset.s; r.dataset.touched = '1'; }
+  else if (act === 'smart-rest-all') {
+    if (!confirm('Saare exercises ke rest time smart defaults se badal du?\n\nCompound lifts: 90s / 120s\nBodyweight compound: 60s / 90s\nIsolation: 45s / 60s\nCore, mobility, holds: 30s / 45s')) return;
+    state.exercises.forEach(x => { const [r, rx] = smartRest(x.name, exType(x)); x.rest = r; x.restEx = rx; });
+    persist(); render(); toast('Smart rest times laga diye');
+  }
   else if (act === 'add-ex') {
     const name = $('#newName').value.trim(); if (!name) { $('#newName').focus(); return; }
     if (state.exercises.some(x => x.name.toLowerCase() === name.toLowerCase())) { toast('That exercise already exists'); return; }
@@ -1378,6 +1556,20 @@ document.addEventListener('click', (e) => {
   }
 });
 
+/* new-exercise form: auto-fill smart rest + type from the name until you edit them yourself */
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'newRest' || t.id === 'newRestEx') { t.dataset.touched = '1'; return; }
+  if (t.id === 'newName') {
+    const name = t.value.trim(); if (!name) return;
+    const typeSel = $('#newType'), r = $('#newRest'), x = $('#newRestEx');
+    if (typeSel && !typeSel.dataset.touched) typeSel.value = guessType(name);
+    const [sr, sx] = smartRest(name, typeSel ? typeSel.value : undefined);
+    if (r && !r.dataset.touched) r.value = sr;
+    if (x && !x.dataset.touched) x.value = sx;
+  }
+});
+
 document.addEventListener('change', (e) => {
   const t = e.target;
   if (t.id === 'importFile') {
@@ -1385,42 +1577,44 @@ document.addEventListener('change', (e) => {
     const r = new FileReader();
     r.onload = () => {
       try {
-        const d = JSON.parse(r.result);
-        if (!Array.isArray(d.exercises) || !Array.isArray(d.sessions)) throw 0;
-        if (!confirm('Replace current data with this backup?')) return;
+        const d = cleanImport(JSON.parse(r.result));
+        if (!confirm('Replace current data with this backup?\n\n' + d.exercises.length + ' exercises · ' + d.sessions.length + ' workouts')) { t.value = ''; return; }
         const oldList = state.sessions;
-        const newList = d.sessions.map(s => ({ ...s, id: s.id || uid() }));
-        state.exercises = d.exercises; state.sessions = newList; state.active = null;
-        state.plan = normPlan(d.plan); state.profile = normProfile(d.profile);
-        persist(); replaceSessions(oldList, newList); render(); toast('Backup restored');
+        state.exercises = d.exercises; state.sessions = d.sessions; state.active = null;
+        state.plan = d.plan; state.profile = d.profile;
+        persist(); replaceSessions(oldList, d.sessions); render(); toast('Backup restored');
       } catch (x) { toast('That file is not a valid backup.'); }
       t.value = '';
     };
     r.readAsText(f); return;
   }
+  if (t.id === 'progSel') { histEx = t.value; render(); return; }
+  if (t.id === 'newType') { t.dataset.touched = '1'; return; }
   const f = t.dataset.f; if (!f) return;
   if (f === 'planname') { state.plan.days[planSel].name = t.value.trim(); persist(); return; }
-  if (f === 'psets' || f === 'preps') {                 // sets / reps target for an exercise on the selected day
+  if (f === 'psets' || f === 'preps' || f === 'ptype') {   // per-day sets / reps / type for an exercise
     const d = state.plan.days[planSel]; d.cfg = d.cfg || {};
     const c = d.cfg[t.dataset.id] = d.cfg[t.dataset.id] || { sets: 3, reps: '' };
     if (f === 'psets') { c.sets = Math.max(1, Math.round(num(t.value, 3))); t.value = c.sets; }
+    else if (f === 'ptype') { c.type = t.value; persist(); render(); return; }
     else c.reps = t.value.trim();
     persist(); return;
   }
   const [en] = entryOf(t);
   if (en) {                                   // inside a workout card
     const ex = exById(en.exId);
-    if (f === 'rest') { ex.rest = Math.max(5, num(t.value, ex.rest)); t.value = ex.rest; }
-    else if (f === 'restEx') { ex.restEx = Math.max(5, num(t.value, exRest(ex))); t.value = ex.restEx; }
-    else en[f] = Math.max(0, num(t.value));
+    if (f === 'rest') { const v = Math.max(5, num(t.value, ex.rest)); t.value = v; askRest(en.exId, 'rest', v, ex.rest); return; }
+    if (f === 'restEx') { const v = Math.max(5, num(t.value, exRest(ex))); t.value = v; askRest(en.exId, 'restEx', v, exRest(ex)); return; }
+    if (f === 'etype') { en.type = t.value; if (en.type === 'timed' && !en.t) en.t = 30; persist(); render(); return; }
+    en[f] = Math.max(0, num(t.value));
     persist(); return;
   }
   const row = t.closest('[data-id]');         // exercise list
   if (row) {
     const ex = exById(row.dataset.id);
     if (f === 'name') { const v = t.value.trim(); if (v) ex.name = v; else t.value = ex.name; }
-    if (f === 'rest') { ex.rest = Math.max(5, num(t.value, ex.rest)); t.value = ex.rest; }
-    if (f === 'restEx') { ex.restEx = Math.max(5, num(t.value, exRest(ex))); t.value = ex.restEx; }
+    if (f === 'rest') { const v = Math.max(5, num(t.value, ex.rest)); t.value = v; askRest(ex.id, 'rest', v, ex.rest); return; }
+    if (f === 'restEx') { const v = Math.max(5, num(t.value, exRest(ex))); t.value = v; askRest(ex.id, 'restEx', v, exRest(ex)); return; }
     if (f === 'type') ex.type = t.value;
     persist();
   }
